@@ -45,7 +45,7 @@ function App() {
     try {
       setLoading(true);
       const response = await fetch(
-        `https://api.waqi.info/feed/geo:${lat};${lon}/?token=demo`
+        `https://api.waqi.info/feed/geo:${lat};${lon}/?token=7e57f03fa95322b75dc2cce9062121f0176158b2`
       );
       const data = await response.json();
       
@@ -66,7 +66,7 @@ function App() {
   const fetchAirQualityByIP = async () => {
     try {
       setLoading(true);
-      const response = await fetch('https://api.waqi.info/feed/here/?token=demo');
+      const response = await fetch('https://api.waqi.info/feed/here/?token=d7e57f03fa95322b75dc2cce9062121f0176158b2');
       const data = await response.json();
       
       if (data.status === 'ok') {
@@ -82,12 +82,12 @@ function App() {
   };
 
   const getAQILevel = (aqi) => {
-    if (aqi <= 50) return { level: 'Good', color: '#00e400', emoji: '😊', advice: 'Air quality is excellent. Perfect for outdoor activities!' };
-    if (aqi <= 100) return { level: 'Moderate', color: '#ffff00', emoji: '😐', advice: 'Air quality is acceptable. Sensitive individuals should limit prolonged outdoor exertion.' };
-    if (aqi <= 150) return { level: 'Unhealthy for Sensitive', color: '#ff7e00', emoji: '😷', advice: 'People with respiratory conditions should reduce prolonged outdoor activities.' };
-    if (aqi <= 200) return { level: 'Unhealthy', color: '#ff0000', emoji: '😨', advice: 'Everyone should reduce outdoor activities. Wear a mask if going outside.' };
-    if (aqi <= 300) return { level: 'Very Unhealthy', color: '#8f3f97', emoji: '🚨', advice: 'Avoid all outdoor activities. Stay indoors with air purifier.' };
-    return { level: 'Hazardous', color: '#7e0023', emoji: '☠️', advice: 'Health emergency! Stay indoors. Seal windows and doors.' };
+    if (aqi <= 50) return { level: 'Good', color: '#00e400',  advice: 'Air quality is excellent. Perfect for outdoor activities!' };
+    if (aqi <= 100) return { level: 'Moderate', color: '#ffff00', advice: 'Air quality is acceptable. Sensitive individuals should limit prolonged outdoor exertion.' };
+    if (aqi <= 150) return { level: 'Unhealthy for Sensitive', color: '#ff7e00', advice: 'People with respiratory conditions should reduce prolonged outdoor activities.' };
+    if (aqi <= 200) return { level: 'Unhealthy', color: '#ff0000',  advice: 'Everyone should reduce outdoor activities. Wear a mask if going outside.' };
+    if (aqi <= 300) return { level: 'Very Unhealthy', color: '#8f3f97', advice: 'Avoid all outdoor activities. Stay indoors with air purifier.' };
+    return { level: 'Hazardous', color: '#7e0023',  advice: 'Health emergency! Stay indoors. Seal windows and doors.' };
   };
 
   const getPollutantInfo = (iaqi) => {

@@ -66,7 +66,7 @@ function App() {
   const fetchAirQualityByIP = async () => {
     try {
       setLoading(true);
-      const response = await fetch('https://api.waqi.info/feed/here/?token=d7e57f03fa95322b75dc2cce9062121f0176158b2');
+      const response = await fetch('https://api.waqi.info/feed/here/?token=7e57f03fa95322b75dc2cce9062121f0176158b2');
       const data = await response.json();
       
       if (data.status === 'ok') {

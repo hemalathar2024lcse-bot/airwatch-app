@@ -3,24 +3,8 @@ import { Wind, MapPin, AlertTriangle, TrendingUp, Clock, Droplets, Thermometer, 
 
 const API_TOKEN = '7e57f03fa95322b75dc2cce9062121f0176158b2';
 const API_BASE = 'https://api.waqi.info/feed';
-const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes
-const FETCH_TIMEOUT = 10000; // 10 seconds
-
-async function fetchWithTimeout(url, timeoutMs = FETCH_TIMEOUT) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    return res;
-  } catch (err) {
-    clearTimeout(timer);
-    if (err.name === 'AbortError') {
-      throw new Error('Request timed out. The API may be blocked in your network or region. Try using a VPN.');
-    }
-    throw err;
-  }
-}
+const REFRESH_INTERVAL = 15 * 60 * 1000;
+const DEFAULT_CITY = 'Coimbatore, India';
 
 function App() {
   const [airData, setAirData] = useState(null);
@@ -31,108 +15,67 @@ function App() {
   const [locationMethod, setLocationMethod] = useState('detecting');
   const [searchCity, setSearchCity] = useState('');
 
-  // ─── Core fetch by lat/lon ────────────────────────────────────────────────
-  const fetchAirQuality = useCallback(async (lat, lon) => {
-    try {
-      setLoading(true);
-      const url = `${API_BASE}/geo:${lat};${lon}/?token=${API_TOKEN}`;
-      const res = await fetchWithTimeout(url);
-      const data = await res.json();
-
-      if (data.status === 'ok') {
-        setAirData(data.data);
-        setLastUpdated(new Date());
-        setError(null);
-      } else {
-        setError(`API error: ${data.data || 'Unknown error. Try searching a city manually.'}`);
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to fetch air quality data.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // ─── Fetch by city name ───────────────────────────────────────────────────
   const fetchAirQualityByCity = useCallback(async (cityName) => {
-    if (!cityName.trim()) return;
+    if (!cityName || !cityName.trim()) return;
     try {
       setLoading(true);
       setLocationMethod('manual');
-      const url = `${API_BASE}/${encodeURIComponent(cityName.trim())}/?token=${API_TOKEN}`;
-      const res = await fetchWithTimeout(url);
-      const data = await res.json();
-
+      const response = await fetch(
+        `${API_BASE}/${encodeURIComponent(cityName.trim())}/?token=${API_TOKEN}`
+      );
+      const data = await response.json();
       if (data.status === 'ok') {
         setAirData(data.data);
         setLastUpdated(new Date());
         setError(null);
       } else {
-        setError(`Could not find air quality data for "${cityName}". Try "City, Country" format.`);
+        setError(`Could not find data for "${cityName}". Try another city name.`);
       }
     } catch (err) {
-      setError(err.message || 'Network error. Please check your connection.');
+      setError('Network error. Please check your connection.');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // ─── IP-based fallback ────────────────────────────────────────────────────
-  const fetchAirQualityByIP = useCallback(async () => {
+  const fetchAirQuality = useCallback(async (lat, lon) => {
     try {
       setLoading(true);
-
-      // Try ipapi.co first
-      let lat, lon;
-      try {
-        const ipRes = await fetchWithTimeout('https://ipapi.co/json/', 6000);
-        const ipData = await ipRes.json();
-        if (ipData.latitude && ipData.longitude) {
-          lat = ipData.latitude;
-          lon = ipData.longitude;
-        }
-      } catch {
-        // ipapi.co failed — silently fall through
-      }
-
-      if (lat && lon) {
-        await fetchAirQuality(lat, lon);
+      const response = await fetch(
+        `${API_BASE}/geo:${lat};${lon}/?token=${API_TOKEN}`
+      );
+      const data = await response.json();
+      if (data.status === 'ok') {
+        setAirData(data.data);
+        setLastUpdated(new Date());
+        setError(null);
       } else {
-        // Last resort: fallback to a default city instead of using /here
-        // which can return wrong location on Vercel's servers
-        await fetchAirQualityByCity('Coimbatore, India');
+        await fetchAirQualityByCity(DEFAULT_CITY);
       }
     } catch (err) {
-      setError(err.message || 'Unable to fetch air quality data. Please search for a city manually.');
+      await fetchAirQualityByCity(DEFAULT_CITY);
     } finally {
       setLoading(false);
     }
-  }, [fetchAirQuality]);
+  }, [fetchAirQualityByCity]);
 
-  // ─── Geolocation on mount ─────────────────────────────────────────────────
   useEffect(() => {
     if (!navigator.geolocation) {
-      setLocationMethod('ip');
-      fetchAirQualityByIP();
+      fetchAirQualityByCity(DEFAULT_CITY);
       return;
     }
-
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const coords = { lat: position.coords.latitude, lon: position.coords.longitude };
-        setLocation(coords);
+        setLocation({ lat: position.coords.latitude, lon: position.coords.longitude });
         setLocationMethod('gps');
       },
-      (err) => {
-        console.warn('Geolocation denied or failed:', err.message);
-        setLocationMethod('ip');
-        fetchAirQualityByIP();
+      () => {
+        fetchAirQualityByCity(DEFAULT_CITY);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 }
     );
-  }, [fetchAirQualityByIP]);
+  }, [fetchAirQualityByCity]);
 
-  // ─── Auto-refresh when GPS coords available ───────────────────────────────
   useEffect(() => {
     if (!location) return;
     fetchAirQuality(location.lat, location.lon);
@@ -142,7 +85,6 @@ function App() {
     return () => clearInterval(interval);
   }, [location, fetchAirQuality]);
 
-  // ─── Helpers ──────────────────────────────────────────────────────────────
   const getAQILevel = (aqi) => {
     if (aqi <= 50)  return { level: 'Good',                    color: '#00e400', advice: 'Air quality is excellent. Perfect for all outdoor activities!' };
     if (aqi <= 100) return { level: 'Moderate',                color: '#ffff00', advice: 'Air quality is acceptable. Sensitive individuals should limit prolonged exertion.' };
@@ -155,12 +97,12 @@ function App() {
   const getPollutants = (iaqi) => {
     if (!iaqi) return [];
     return [
-      iaqi.pm25 && { name: 'PM2.5',  value: iaqi.pm25.v, icon: Droplets,      desc: 'Fine particles — penetrate deep into lungs' },
-      iaqi.pm10 && { name: 'PM10',   value: iaqi.pm10.v, icon: Wind,           desc: 'Coarse particles from dust and smoke' },
-      iaqi.o3   && { name: 'Ozone',  value: iaqi.o3.v,   icon: Sun,            desc: 'Ground-level ozone from vehicle emissions' },
-      iaqi.no2  && { name: 'NO₂',    value: iaqi.no2.v,  icon: AlertTriangle,  desc: 'Nitrogen dioxide from combustion' },
-      iaqi.so2  && { name: 'SO₂',    value: iaqi.so2.v,  icon: AlertTriangle,  desc: 'Sulfur dioxide from industrial sources' },
-      iaqi.co   && { name: 'CO',     value: iaqi.co.v,   icon: Wind,           desc: 'Carbon monoxide from incomplete combustion' },
+      iaqi.pm25 && { name: 'PM2.5', value: iaqi.pm25.v, icon: Droplets,     desc: 'Fine particles — penetrate deep into lungs' },
+      iaqi.pm10 && { name: 'PM10',  value: iaqi.pm10.v, icon: Wind,          desc: 'Coarse particles from dust and smoke' },
+      iaqi.o3   && { name: 'Ozone', value: iaqi.o3.v,   icon: Sun,           desc: 'Ground-level ozone from vehicle emissions' },
+      iaqi.no2  && { name: 'NO2',   value: iaqi.no2.v,  icon: AlertTriangle, desc: 'Nitrogen dioxide from combustion' },
+      iaqi.so2  && { name: 'SO2',   value: iaqi.so2.v,  icon: AlertTriangle, desc: 'Sulfur dioxide from industrial sources' },
+      iaqi.co   && { name: 'CO',    value: iaqi.co.v,   icon: Wind,          desc: 'Carbon monoxide from incomplete combustion' },
     ].filter(Boolean);
   };
 
@@ -168,27 +110,17 @@ function App() {
     if (e.key === 'Enter') fetchAirQualityByCity(searchCity);
   };
 
-  const handleRetry = () => {
-    setError(null);
-    if (location) fetchAirQuality(location.lat, location.lon);
-    else fetchAirQualityByIP();
-  };
-
-  // ─── Loading state ────────────────────────────────────────────────────────
   if (loading && !airData) {
     return (
       <div className="app">
         <div className="loading-container">
           <div className="loading-spinner" />
-          <p className="loading-text">
-            {locationMethod === 'detecting' ? 'Detecting your location…' : 'Fetching air quality data…'}
-          </p>
+          <p className="loading-text">Loading air quality data...</p>
         </div>
       </div>
     );
   }
 
-  // ─── Hard error (no data at all) ──────────────────────────────────────────
   if (error && !airData) {
     return (
       <div className="app">
@@ -196,35 +128,29 @@ function App() {
           <AlertTriangle size={64} color="#ff4444" />
           <h2>Unable to Load Data</h2>
           <p className="error-msg">{error}</p>
-
-          {/* Still allow manual search even in error state */}
           <div className="search-bar error-search">
             <Search size={18} />
             <input
               type="text"
-              placeholder="Try searching a city…"
+              placeholder="Search a city..."
               value={searchCity}
               onChange={(e) => setSearchCity(e.target.value)}
               onKeyPress={handleSearchKey}
               className="search-input"
             />
-            <button onClick={() => fetchAirQualityByCity(searchCity)} className="search-btn">
-              Search
-            </button>
+            <button onClick={() => fetchAirQualityByCity(searchCity)} className="search-btn">Search</button>
           </div>
-
-          <button onClick={handleRetry} className="retry-btn">
-            <RefreshCw size={16} /> Retry Auto-detect
+          <button onClick={() => fetchAirQualityByCity(DEFAULT_CITY)} className="retry-btn">
+            <RefreshCw size={16} /> Load Default City
           </button>
         </div>
       </div>
     );
   }
 
-  const aqiInfo   = airData ? getAQILevel(airData.aqi)       : null;
-  const pollutants = airData ? getPollutants(airData.iaqi)   : [];
+  const aqiInfo    = airData ? getAQILevel(airData.aqi)    : null;
+  const pollutants = airData ? getPollutants(airData.iaqi) : [];
 
-  // ─── Main UI ──────────────────────────────────────────────────────────────
   return (
     <div className="app">
       <header className="header">
@@ -236,12 +162,10 @@ function App() {
           <div className="location-info">
             <MapPin size={18} />
             <span>{airData?.city?.name || 'Unknown location'}</span>
-            {locationMethod === 'ip'     && <span className="location-badge">(IP-based)</span>}
-            {locationMethod === 'gps'    && <span className="location-badge">(GPS)</span>}
-            {locationMethod === 'manual' && <span className="location-badge">(Manual)</span>}
+            {locationMethod === 'gps'    && <span className="location-badge">GPS</span>}
+            {locationMethod === 'manual' && <span className="location-badge">Manual</span>}
           </div>
         </div>
-
         <div className="search-bar">
           <Search size={18} />
           <input
@@ -252,12 +176,8 @@ function App() {
             onKeyPress={handleSearchKey}
             className="search-input"
           />
-          <button onClick={() => fetchAirQualityByCity(searchCity)} className="search-btn">
-            Search
-          </button>
+          <button onClick={() => fetchAirQualityByCity(searchCity)} className="search-btn">Search</button>
         </div>
-
-        {/* Non-blocking soft error banner (when we have data but something minor went wrong) */}
         {error && airData && (
           <div className="soft-error-banner">
             <AlertTriangle size={14} /> {error}
@@ -266,7 +186,6 @@ function App() {
       </header>
 
       <main className="main-content">
-        {/* Hero AQI */}
         <div className="aqi-hero" style={{ '--aqi-color': aqiInfo?.color }}>
           <div className="aqi-circle">
             <div className="aqi-number">{airData?.aqi}</div>
@@ -282,11 +201,10 @@ function App() {
           <div className="last-updated">
             <Clock size={16} />
             <span>Updated {lastUpdated.toLocaleTimeString()}</span>
-            {loading && <span className="refreshing"> · Refreshing…</span>}
+            {loading && <span className="refreshing"> · Refreshing...</span>}
           </div>
         )}
 
-        {/* Pollutants */}
         {pollutants.length > 0 && (
           <section className="pollutants-section">
             <h3>Pollutant Breakdown</h3>
@@ -305,7 +223,6 @@ function App() {
           </section>
         )}
 
-        {/* Weather */}
         {airData?.iaqi && (
           <section className="weather-section">
             <h3>Environmental Conditions</h3>
@@ -313,7 +230,7 @@ function App() {
               {airData.iaqi.t && (
                 <div className="weather-card">
                   <Thermometer size={20} />
-                  <span className="weather-value">{airData.iaqi.t.v}°C</span>
+                  <span className="weather-value">{airData.iaqi.t.v}C</span>
                   <span className="weather-label">Temperature</span>
                 </div>
               )}
@@ -342,7 +259,6 @@ function App() {
           </section>
         )}
 
-        {/* Health Recommendations */}
         <section className="recommendations-section">
           <h3>Health Recommendations</h3>
           <div className="recommendations">
@@ -387,11 +303,7 @@ function App() {
         </section>
 
         <footer className="attribution">
-          <p>Data provided by{' '}
-            <a href="https://waqi.info/" target="_blank" rel="noopener noreferrer">
-              World Air Quality Index
-            </a>
-          </p>
+          <p>Data provided by <a href="https://waqi.info/" target="_blank" rel="noopener noreferrer">World Air Quality Index</a></p>
           <p className="disclaimer">Real-time monitoring · Updates every 15 minutes</p>
         </footer>
       </main>

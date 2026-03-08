@@ -13,13 +13,46 @@ function App() {
   const [location, setLocation] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [locationMethod, setLocationMethod] = useState('detecting');
+  const [locationLabel, setLocationLabel] = useState('Detecting location...');
   const [searchCity, setSearchCity] = useState('');
+
+  // Reverse geocode lat/lon to a human-readable city name
+  const reverseGeocode = useCallback(async (lat, lon) => {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`
+      );
+      const data = await res.json();
+      const addr = data.address || {};
+
+      // Skip generic admin names like "Ward 27", "Coimbatore North", etc.
+      const rawArea = addr.suburb || addr.neighbourhood || addr.village || null;
+      const area = rawArea && /ward|north|south|east|west|block|division|zone|municipal/i.test(rawArea)
+        ? null
+        : rawArea;
+
+      // Always prefer the actual city name
+      const city = addr.city || addr.town || addr.county || addr.state_district;
+      const state = addr.state;
+
+      if (area && city && state) {
+        setLocationLabel(`${area}, ${city}, ${state}`);
+      } else if (city && state) {
+        setLocationLabel(`${city}, ${state}`);
+      } else if (city) {
+        setLocationLabel(city);
+      }
+    } catch {
+      // fallback: leave as-is
+    }
+  }, []);
 
   const fetchAirQualityByCity = useCallback(async (cityName) => {
     if (!cityName || !cityName.trim()) return;
     try {
       setLoading(true);
       setLocationMethod('manual');
+      setLocationLabel(cityName.trim());
       const response = await fetch(
         `${API_BASE}/${encodeURIComponent(cityName.trim())}/?token=${API_TOKEN}`
       );
@@ -66,15 +99,18 @@ function App() {
     }
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setLocation({ lat: position.coords.latitude, lon: position.coords.longitude });
+        const { latitude: lat, longitude: lon } = position.coords;
+        setLocation({ lat, lon });
         setLocationMethod('gps');
+        reverseGeocode(lat, lon);
       },
       () => {
+        setLocationLabel(DEFAULT_CITY);
         fetchAirQualityByCity(DEFAULT_CITY);
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 }
     );
-  }, [fetchAirQualityByCity]);
+  }, [fetchAirQualityByCity, reverseGeocode]);
 
   useEffect(() => {
     if (!location) return;
@@ -161,7 +197,7 @@ function App() {
           </div>
           <div className="location-info">
             <MapPin size={18} />
-            <span>{airData?.city?.name || 'Unknown location'}</span>
+            <span>{locationLabel}</span>
             {locationMethod === 'gps'    && <span className="location-badge">GPS</span>}
             {locationMethod === 'manual' && <span className="location-badge">Manual</span>}
           </div>
@@ -230,7 +266,7 @@ function App() {
               {airData.iaqi.t && (
                 <div className="weather-card">
                   <Thermometer size={20} />
-                  <span className="weather-value">{airData.iaqi.t.v}C</span>
+                  <span className="weather-value">{airData.iaqi.t.v}°C</span>
                   <span className="weather-label">Temperature</span>
                 </div>
               )}
